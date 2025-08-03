@@ -1,0 +1,106 @@
+[package]
+name = "ruststarter"
+version = "0.1.0"
+edition = "2024"
+description = "A production-ready authentication and authorization server."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/shandysiswandi/ruststarter"
+readme = "README.md"
+
+# -----------------------------------------------------------------------------
+# Release Profile - Optimized for Production
+# -----------------------------------------------------------------------------
+[profile.release]
+opt-level = 3     # Enable full optimizations.
+lto = "thin"      # Enable "thin" Link-Time Optimization for better performance.
+codegen-units = 1 # Maximize optimizations by building the entire crate as one unit.
+strip = "symbols" # Remove debug symbols to significantly reduce binary size.
+panic = "abort"   # Abort on panic to create a smaller binary without unwinding support.
+
+# -----------------------------------------------------------------------------
+# Dependencies
+# -----------------------------------------------------------------------------
+[dependencies]
+# --- Web & API ---
+axum = { version = "0.8.4", features = ["macros", "multipart"] }
+axum-extra = { version = "0.10.1", features = ["typed-header"] }
+reqwest = { version = "0.12.22", features = ["json"] }
+tower = { version = "0.5.2", features = ["timeout", "util"] }
+tower-cookies =  { version = "0.11.0", features = ["private"] }
+tower-http = { version = "0.6.6", features = [
+    "compression-full",
+    "cors",
+    "decompression-full",
+    "trace",
+    "timeout"
+] }
+
+# --- Database & Persistence ---
+sqlx = { version = "0.8.6", features = [
+    "chrono",
+    "derive",
+    "postgres",
+    "runtime-tokio",
+] }
+bb8 = "0.9.0"
+bb8-redis = "0.24.0"
+redis = { version = "0.32.4", features = ["tokio-comp"] }
+
+# --- Serialization & Validation ---
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.142"
+validator = { version = "0.20.0", features = ["derive"] }
+
+# --- Asynchronous Runtime & Concurrency ---
+tokio = { version = "1.47.1", features = ["full"] }
+async-trait = "0.1.88"
+
+# --- Security & Hashing ---
+argon2 = "0.5.3"
+thiserror = "2.0.12"
+jsonwebtoken = "9.3.1"
+chrono = "0.4.41"
+oauth2 = "5.0.0"
+totp-rs = { version = "5.7.0", features = ["qr", "serde_support","gen_secret"] }
+base64 = "0.22.1"
+
+# --- Configuration & Logging ---
+config = { version = "0.15.13", features = ["yaml"] }
+log = "0.4.27"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["json", "env-filter"] }
+
+# --- Cloud & Storage ---
+# These are optional and only included when a specific feature is enabled.
+aws-config = { version = "1.8.3", optional = true }
+aws-sdk-s3 = { version = "1.100.0", optional = true }
+google-cloud-storage = { version = "0.24.0", optional = true }
+mime_guess = "2.0.5"
+
+# --- Utilities ---
+notify = "8.2.0"
+tempfile = "3.20.0"
+uuid = { version = "1.17.0", features = ["v4"] }
+
+# -----------------------------------------------------------------------------
+# Feature Flags
+# -----------------------------------------------------------------------------
+[features]
+# Default feature for local development.
+default = ["storage-local"]
+
+# Enables the local filesystem storage backend.
+storage-local = []
+
+# Enables the MinIO/AWS (S3) backend.
+storage-aws = ["dep:aws-config", "dep:aws-sdk-s3"]
+
+# Enables the Google Cloud Platform (Storage) backend.
+storage-gcp = ["dep:google-cloud-storage"]
+
+# -----------------------------------------------------------------------------
+# Development Dependencies
+# -----------------------------------------------------------------------------
+[dev-dependencies]
+mockall = "0.13.1"
+testcontainers = "0.25.0"

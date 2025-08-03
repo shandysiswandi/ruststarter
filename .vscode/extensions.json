@@ -1,0 +1,8 @@
+{
+    "recommendations": [
+        "rust-lang.rust-analyzer",
+        "ritwickdey.liveserver",
+        "eamodio.gitlens",
+        "vadimcn.vscode-lldb"
+    ]
+}

@@ -1,0 +1,112 @@
+# -----------------------------------------------------------------------------
+# Application Configuration
+# -----------------------------------------------------------------------------
+
+# Server settings
+server:
+  # The address and port the HTTP server will listen on.
+  # 0.0.0.0 means it will listen on all available network interfaces.
+  address: "0.0.0.0:8000"
+  
+  # Timeout for incoming requests in seconds.
+  timeout_secs: 10
+
+# -----------------------------------------------------------------------------
+# Database Configuration
+# -----------------------------------------------------------------------------
+database:
+  # The full connection URL for the PostgreSQL database.
+  # Format: postgres://[user]:[password]@[host]:[port]/[database_name]
+  url: "postgres://user:password@localhost:5432/rust"
+  
+  # Maximum number of connections in the pool.
+  max_connections: 5
+
+# -----------------------------------------------------------------------------
+# Redis Configuration
+# -----------------------------------------------------------------------------
+redis:
+  # The connection URL for the Redis server.
+  # Format: redis://[user]:[password]@[host]:[port]/[db_number]
+  url: "redis://127.0.0.1:6379/0"
+
+  # Maximum number of connections in the pool.
+  max_connections: 10
+
+# -----------------------------------------------------------------------------
+# Session Configuration
+# -----------------------------------------------------------------------------
+session:
+  # A 64-byte, base64-encoded secret key for encrypting session cookies.
+  # Generate with: openssl rand -base64 64
+  secret: "your-super-secret-64-byte-long-session-key-for-testing"
+
+# -----------------------------------------------------------------------------
+# Storage Configuration
+# -----------------------------------------------------------------------------
+storage:
+  local:
+    base_path: "uploads"
+    base_url: "http://localhost:8000/static"
+
+  s3:
+    bucket_name: "your-s3-bucket-name"
+    region: "your-aws-region" # e.g., "ap-southeast-1"
+
+# -----------------------------------------------------------------------------
+# OAuth 2.0 Configuration
+# -----------------------------------------------------------------------------
+oauth:
+  google:
+    client_id: "your-google-client-id.apps.googleusercontent.com"
+    client_secret: "your-google-client-secret"
+    redirect_uri: "http://localhost:8000/auth/google/callback"
+
+# -----------------------------------------------------------------------------
+# Logging Configuration
+# -----------------------------------------------------------------------------
+# This is controlled by the RUST_LOG environment variable, but you could add
+# custom logging configurations here if needed.
+# For example:
+log_level: "info"
+
+# -----------------------------------------------------------------------------
+# JWT Configuration
+# -----------------------------------------------------------------------------
+jwt:
+  # A strong, secret key for signing access tokens.
+  # Generate with: openssl rand -base64 64
+  access_secret: "your-super-secret"
+  
+  # A separate, strong secret key for signing refresh tokens.
+  # Generate with: openssl rand -base64 64
+  refresh_secret: "your-super-secret-refresh-key-for-testing-only"
+
+  # A separate, strong secret key for signing generic tokens.
+  # Generate with: openssl rand -base64 64
+  generic_secret: "your-super-secret-refresh-key-for-testing-only"
+  
+  # Expiration time for access tokens in seconds (e.g., 15 minutes).
+  access_expiration_secs: 900
+  
+  # Expiration time for refresh tokens in seconds (e.g., 7 days).
+  refresh_expiration_secs: 604800
+  
+  # Expiration time for generic tokens in seconds (e.g., 3 minutes).
+  generic_expiration_secs: 180
+
+  # The issuer claim (iss) identifies who created and signed the token.
+  issuer: "rust-server-api"
+  
+  # The audience claim (aud) identifies the intended recipient of the token.
+  audience: "web-app"
+
+# -----------------------------------------------------------------------------
+# Application-specific Settings
+# -----------------------------------------------------------------------------
+# Unique ID for this specific instance of the application, used for the
+# Snowflake ID generator to prevent ID collisions in a distributed setup.
+# Each running instance of your application should have a unique worker_id.
+snowflake:
+  worker_id: 1
+

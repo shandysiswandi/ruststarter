@@ -1,0 +1,16 @@
+# Ignore version control files
+.git
+.gitignore
+.github
+.vscode/
+
+# Ignore migrations
+migrations/
+
+# Ignore build artifacts
+target/
+
+README.md
+LICENSE
+compose.yaml
+.env

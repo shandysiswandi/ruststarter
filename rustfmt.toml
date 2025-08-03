@@ -1,0 +1,20 @@
+edition = "2024"
+
+# The maximum width of a line.
+max_width = 110
+
+# Reorder imports alphabetically.
+reorder_imports = true
+
+# Enforce a trailing comma on vertical lists (structs, enums, function args, etc.).
+match_block_trailing_comma = true
+
+# Use spaces instead of tabs. The universal standard.
+hard_tabs = false
+tab_spaces = 4
+
+# Use shorthand notation for struct fields: `Struct { field }` instead of `Struct { field: field }`.
+use_field_init_shorthand = true
+
+# Don't reorder `mod` statements. The order is often semantically important.
+reorder_modules = false
