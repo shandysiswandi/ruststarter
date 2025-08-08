@@ -1,7 +1,6 @@
 # RustStarter
 
 [![CI](https://github.com/shandysiswandi/ruststarter/actions/workflows/ci.yaml/badge.svg)](https://github.com/shandysiswandi/ruststarter/actions/workflows/ci.yml)
-[![Crates.io](https://img.shields.io/crates/v/ruststarter.svg)](https://crates.io/crates/ruststarter)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 A modern, modular, and production-ready authentication and authorization server built in Rust. This project serves as a robust foundation for building secure and scalable web services, following Clean Architecture principles for a clear separation of concerns.
@@ -49,8 +48,10 @@ Follow these instructions to get the project up and running on your local machin
 ### Prerequisites
 
 * **Rust Toolchain**: Install via [rustup](https://rustup.rs/) (latest stable version).
-* **PostgreSQL**: A running instance of PostgreSQL. [Docker](https://www.docker.com/) is recommended.
-* **Goose**: The database migration tool. Install with `go install github.com/pressly/goose/v3/cmd/goose@latest`.
+* **PostgreSQL**: A running instance of PostgreSQL.
+* **Redis**: A running Redis server for caching, sessions, or queues.
+* **SeaORM CLI**: The code generation tool for [SeaORM](https://www.sea-ql.org/SeaORM/)
+* **Goose**: The database migration tool. [See](https://github.com/pressly/goose)
 
 ### 1. Clone the Repository
 
@@ -60,11 +61,11 @@ git clone https://github.com/shandysiswandi/ruststarter.git
 cd ruststarter
 ```
 
-### 2. Set Up the Database
-If using Docker, you can start a PostgreSQL container with:
+### 2. Set Up the Database and Redis
+If using Docker, you can start a PostgreSQL & Redis container with:
 
 ```bash
-docker run --name rust -e POSTGRES_PASSWORD=password -p 5432:5432 -d postgres
+docker compose up -d
 ```
 
 ### 3. Configure the Application
@@ -74,27 +75,23 @@ Copy the example configuration file and update it with your database URL.
 cp config/config.example.yaml config/config.yaml
 ```
 
-Open config/config.yaml and ensure the database.url matches your setup.
+Open `config/config.yaml` and ensure the `database.url` and `redis.url` matches your setup.
 
 ### 4. Run Database Migrations
-Navigate to the migrations directory and run Goose to set up the schema.
+Run Goose to set up the schema.
 
 ```bash
-cd db/migrations
-
-goose postgres "postgres://postgres:password@localhost:5432/rust" up
+goose -dir db/migrations postgres "postgres://postgres:password@localhost:5432/rust" up
 ```
 
 ### 5. Run the Application
-Return to the project root and run the server.
+You can now run the server.
 
 ```bash
-cd ../..
-
 cargo run
 ```
 
-The server should now be running and listening on the address specified in your config.yaml (e.g., http://0.0.0.0:8000).
+The server should now be running and listening on the address specified in your `config.yaml` (e.g., http://0.0.0.0:8000).
 
 ## 🧪 Testing
 

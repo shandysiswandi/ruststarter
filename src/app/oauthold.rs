@@ -20,6 +20,7 @@ pub struct AuthorizationDetails {
 /// A generic representation of user information fetched from an OAuth provider.
 #[derive(Deserialize, Debug)]
 pub struct OAuthUserProfile {
+    pub provider_user_id: String,
     pub email: String,
     pub name: Option<String>,
     pub avatar_url: Option<String>,
@@ -141,6 +142,7 @@ impl OAuthProvider for GoogleOAuthProvider {
 
         #[derive(Deserialize)]
         struct GoogleProfile {
+            provider_user_id: String,
             email: String,
             name: Option<String>,
             picture: Option<String>,
@@ -157,6 +159,7 @@ impl OAuthProvider for GoogleOAuthProvider {
             .map_err(|_| AppError::Internal)?;
 
         Ok(OAuthUserProfile {
+            provider_user_id: profile.provider_user_id,
             email: profile.email,
             name: profile.name,
             avatar_url: profile.picture,

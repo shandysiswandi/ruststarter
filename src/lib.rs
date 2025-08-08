@@ -1,19 +1,33 @@
 use crate::app::config::Config;
-use crate::app::jwt::{JwtService, TokenManager};
+use crate::app::jwt::{JwtConfig, JwtService, TokenManager};
+use crate::app::middleware::request_response_logger;
 use crate::app::oauthold::{GoogleOAuthProvider, OAuthManager};
 use crate::app::password::{Argon2Hasher, Hasher};
 use crate::app::router;
-use crate::app::state::{AppState, AuthState};
+use crate::app::state::AppState;
 use crate::app::storage::StorageService;
+
 #[cfg(feature = "storage-local")]
 use crate::app::storage::local::LocalStorageService;
+
 use crate::app::uid::{Generator, Snowflake};
-use crate::auth::outbound::session::{SessionRedis, SessionRepository};
-use crate::auth::outbound::sql::{AuthDataSource, AuthSQL};
-use crate::auth::usecase::authn::{AuthnService, AuthnUseCase};
-use crate::auth::usecase::profile::{ProfileService, ProfileUseCase};
+use crate::auth::{
+    inbound::state::AuthState,
+    outbound::{
+        orm::AuthORM,
+        repository::AuthRepository,
+        session::{SessionRedis, SessionRepository},
+    },
+    usecase::{
+        authn::{AuthnService, AuthnUseCase},
+        authz::{AuthzService, AuthzUseCase},
+        profile::{ProfileService, ProfileUseCase},
+    },
+};
+use axum::middleware;
 use base64::{Engine as _, engine::general_purpose};
 use bb8_redis::RedisConnectionManager;
+use sea_orm::{ConnectOptions, Database};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
@@ -25,11 +39,11 @@ use tower_http::{
     cors::{Any, CorsLayer},
     decompression::RequestDecompressionLayer,
     timeout::TimeoutLayer,
-    trace::TraceLayer,
 };
 
 mod app;
 mod auth;
+mod orm;
 
 /// Initializes all dependencies and starts the web server.
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -38,18 +52,30 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let (shutdown_tx, _) = broadcast::channel(1);
     spawn_shutdown_listener(shutdown_tx.clone());
 
-    // Initialize globally shared resources like config and the database pool.
+    // Initialize configuration and watcher.
     // The .watch() method enables automatic reloading when the config file changes.
-    let config = Config::builder("config/config.yaml")
-        .watch_interval(Duration::from_secs(5))
-        .watch()
-        .build()?;
-    let db_pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(config.get::<u32>("database.max_connections")?)
-        .connect(&config.get::<String>("database.url")?)
-        .await?;
+    let config = Arc::new(
+        Config::builder("config/config.yaml")
+            .watch_interval(Duration::from_secs(5))
+            .watch()
+            .build()?,
+    );
 
-    // Initialize redis
+    // Initialize the SeaORM database connection pool.
+    let mut db_opt = ConnectOptions::new(config.get::<String>("database.url")?);
+    db_opt
+        .min_connections(config.get("database.min_connections")?)
+        .max_connections(config.get("database.max_connections")?)
+        .connect_timeout(Duration::from_secs(config.get("database.connect_timeout_secs")?))
+        .acquire_timeout(Duration::from_secs(config.get("database.acquire_timeout_secs")?))
+        .idle_timeout(Duration::from_secs(config.get("database.idle_timeout_secs")?))
+        .max_lifetime(Duration::from_secs(config.get("database.max_lifetime_secs")?))
+        .sqlx_logging(config.get("database.sqlx_logging")?)
+        .sqlx_logging_level(log::LevelFilter::Debug);
+
+    let db_pool = Arc::new(Database::connect(db_opt).await?);
+
+    // Initialize redis connection pool.
     let rds_url = config.get::<String>("redis.url")?;
     let rds_manager = RedisConnectionManager::new(rds_url)?;
     let rds_pool = bb8::Pool::builder()
@@ -68,28 +94,19 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let hasher: Arc<dyn Hasher> = Arc::new(Argon2Hasher::new());
 
     // Instantiate the JWT service with all required config values.
-    let access_secret = config.get("jwt.access_secret")?;
-    let refresh_secret = config.get("jwt.refresh_secret")?;
-    let generic_secret = config.get("jwt.generic_secret")?;
-    let access_exp = config.get("jwt.access_expiration_secs")?;
-    let refresh_exp = config.get("jwt.refresh_expiration_secs")?;
-    let generic_exp = config.get("jwt.generic_expiration_secs")?;
-    let issuer = config.get("jwt.issuer")?;
-    let audience = config.get("jwt.audience")?;
-    let token_manager: Arc<dyn TokenManager> = Arc::new(JwtService::new(
-        access_secret,
-        refresh_secret,
-        generic_secret,
-        access_exp,
-        refresh_exp,
-        generic_exp,
-        issuer,
-        audience,
-    ));
+    let token_manager: Arc<dyn TokenManager> = Arc::new(JwtService::new(JwtConfig {
+        access_secret: config.get("jwt.access_secret")?,
+        refresh_secret: config.get("jwt.refresh_secret")?,
+        generic_secret: config.get("jwt.generic_secret")?,
+        access_exp_secs: config.get("jwt.access_expiration_secs")?,
+        refresh_exp_secs: config.get("jwt.refresh_expiration_secs")?,
+        generic_exp_secs: config.get("jwt.generic_expiration_secs")?,
+        issuer: config.get("jwt.issuer")?,
+        audience: config.get("jwt.audience")?,
+    }));
 
     // Initialize the cookie encryption key.
-    let session_secret = config.get::<String>("session.secret")?;
-    let cookie_key = Key::from(&general_purpose::STANDARD.decode(session_secret)?);
+    let cookie_key = Key::from(&general_purpose::STANDARD.decode(config.get::<String>("session.secret")?)?);
 
     // Initialize OAuth Manager and providers.
     let mut oauth_manager = OAuthManager::new();
@@ -116,32 +133,39 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize auth module
     let session_repo: Arc<dyn SessionRepository> = Arc::new(SessionRedis::new(rds_pool));
-    let auth_repo: Arc<dyn AuthDataSource> = Arc::new(AuthSQL::new(db_pool.clone(), snowflake.clone()));
+    let auth_repo: Arc<dyn AuthRepository> = Arc::new(AuthORM::new(db_pool.clone(), snowflake.clone()));
     let authn_svc: Arc<dyn AuthnUseCase> = Arc::new(AuthnService::new(
+        config.clone(),
         hasher.clone(),
-        snowflake,
+        snowflake.clone(),
         token_manager.clone(),
         session_repo,
         oauth_manager,
         auth_repo.clone(),
     ));
-    let profile_svc: Arc<dyn ProfileUseCase> =
-        Arc::new(ProfileService::new(storage_service, hasher, auth_repo));
+    let authz_svc: Arc<dyn AuthzUseCase> = Arc::new(AuthzService::new(auth_repo.clone()));
+    let profile_svc: Arc<dyn ProfileUseCase> = Arc::new(ProfileService::new(
+        Arc::clone(&config),
+        snowflake,
+        storage_service,
+        hasher,
+        auth_repo,
+    ));
 
     // Assemble the final AppState from the shared resources and module states.
     let app_state = AppState {
-        config: Arc::new(config),
+        config: Arc::clone(&config),
         cookie_key,
         token: token_manager,
-        auth: AuthState::new(authn_svc, profile_svc),
+        auth: AuthState::new(authn_svc, authz_svc, profile_svc),
     };
 
     // Create the Router and Middlewares
     let timeout_secs = Duration::from_secs(app_state.config.get::<u64>("server.timeout_secs")?);
     let app = router::create_router_app(app_state.clone()).layer(
         ServiceBuilder::new()
+            .layer(middleware::from_fn(request_response_logger))
             .layer(CookieManagerLayer::new())
-            .layer(TraceLayer::new_for_http()) // Logs requests and responses
             .layer(CorsLayer::new().allow_origin(Any)) // Enables CORS for all origins
             .layer(RequestDecompressionLayer::new()) // Enables request compression
             .layer(CompressionLayer::new()) // Enables response compression
@@ -158,6 +182,12 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             shutdown_tx.subscribe().recv().await.ok();
             tracing::info!("🛑 Server is shutting down gracefully...");
         })
+        .await?;
+
+    // close / drop all holding resources
+    Arc::try_unwrap(db_pool)
+        .map_err(|_| "Failed to close database - references still exist")?
+        .close()
         .await?;
 
     Ok(())

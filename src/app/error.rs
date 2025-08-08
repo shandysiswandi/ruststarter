@@ -9,7 +9,6 @@
 
 use axum::{
     Json,
-    extract::multipart::MultipartError,
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -17,17 +16,13 @@ use bb8_redis::bb8;
 use serde::Serialize;
 use serde_json::json;
 use thiserror::Error;
-use totp_rs::{SecretParseError, TotpUrlError};
-use validator::ValidationErrors;
 
-use crate::app::{jwt::JwtError, uid::SnowflakeError};
-
-use super::password::HashingError;
+use super::{config::ConfigError, jwt::JwtError, password::HashingError, uid::SnowflakeError};
 
 #[derive(Error, Debug)]
 pub enum AppError {
     #[error("Validation failed")]
-    Validation(#[from] ValidationErrors),
+    Validation(#[from] validator::ValidationErrors),
 
     #[error("Invalid request format: {0}")]
     RequestFormat(String),
@@ -45,13 +40,16 @@ pub enum AppError {
     Conflict(String),
 
     #[error("An internal database error occurred")]
-    Database(#[from] sqlx::Error),
+    Database(#[from] sea_orm::DbErr),
 
     #[error("An internal error occurred during password hashing")]
     Hashing(#[from] HashingError),
 
     #[error("Failed to generate unique ID")]
     IdGeneration(#[from] SnowflakeError),
+
+    #[error("Failed to get config")]
+    Config(#[from] ConfigError),
 
     #[error("JWT operation failed")]
     Jwt(#[from] JwtError),
@@ -63,19 +61,22 @@ pub enum AppError {
     RedisPool(#[from] bb8::RunError<redis::RedisError>),
 
     #[error("Multipart request error")]
-    Multipart(#[from] MultipartError),
+    Multipart(#[from] axum::extract::multipart::MultipartError),
 
     #[error("Failed to parse JSON")]
     JsonParse(#[from] serde_json::Error),
 
     #[error("A TOTP secret is malformed")]
-    TotpSecretMalformed(#[from] SecretParseError),
+    TotpSecretMalformed(#[from] totp_rs::SecretParseError),
 
     #[error("Failed to generate TOTP URL for QR code")]
-    TotpUrl(#[from] TotpUrlError),
+    TotpUrl(#[from] totp_rs::TotpUrlError),
 
     #[error("Failed to generate QR code image")]
     TotpQrGeneration(String),
+
+    #[error("Clock may have gone backwards")]
+    TimeError(#[from] std::time::SystemTimeError),
 
     #[error("An internal server error occurred")]
     Internal,
@@ -110,6 +111,15 @@ impl IntoResponse for AppError {
 
             AppError::Conflict(msg) => (StatusCode::CONFLICT, msg, None),
 
+            AppError::Database(err) => {
+                tracing::error!("Database error: {:?}", err);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "An internal server error occurred".to_string(),
+                    None,
+                )
+            },
+
             AppError::Jwt(err) => {
                 tracing::error!("JWT error: {:?}", err);
                 let status = match err {
@@ -134,15 +144,6 @@ impl IntoResponse for AppError {
 
             AppError::JsonParse(err) => {
                 tracing::error!("Failed to parse JSON: {:?}", err);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "An internal server error occurred".to_string(),
-                    None,
-                )
-            },
-
-            AppError::Database(err) => {
-                tracing::error!("Database error: {:?}", err);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "An internal server error occurred".to_string(),
@@ -185,6 +186,15 @@ impl IntoResponse for AppError {
                 )
             },
 
+            AppError::Config(err) => {
+                tracing::error!("Config getter error: {:?}", err);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "An internal server error occurred".to_string(),
+                    None,
+                )
+            },
+
             AppError::TotpSecretMalformed(err) => {
                 tracing::error!("Failed to parse TOTP secret: {:?}", err);
                 (
@@ -204,6 +214,15 @@ impl IntoResponse for AppError {
             },
 
             AppError::TotpQrGeneration(err) => {
+                tracing::error!("Failed to parse system time: {:?}", err);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "An internal server error occurred".to_string(),
+                    None,
+                )
+            },
+
+            AppError::TimeError(err) => {
                 tracing::error!("Failed to generate TOTP QR code: {:?}", err);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -212,7 +231,7 @@ impl IntoResponse for AppError {
                 )
             },
 
-            _ => (
+            AppError::Internal => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "An internal server error occurred".to_string(),
                 None,

@@ -1,7 +1,9 @@
 use oauth2::{CsrfToken, PkceCodeVerifier};
 use validator::Validate;
 
-// ----- Login -----
+// ╔════════════════════════════╗
+// ║         Login              ║
+// ╚════════════════════════════╝
 
 #[derive(Debug, Validate)]
 pub struct LoginInput {
@@ -25,7 +27,9 @@ pub enum LoginOutput {
     },
 }
 
-// ----- Registration -----
+// ╔════════════════════════════╗
+// ║       Registration         ║
+// ╚════════════════════════════╝
 
 #[derive(Debug, Validate)]
 pub struct RegisterInput {
@@ -43,7 +47,9 @@ pub struct RegisterOutput {
     pub message: String,
 }
 
-// ----- Logout -----
+// ╔════════════════════════════╗
+// ║          Logout            ║
+// ╚════════════════════════════╝
 
 #[derive(Debug, Validate)]
 pub struct LogoutInput {
@@ -56,7 +62,9 @@ pub struct LogoutOutput {
     pub success: bool,
 }
 
-// ----- Refresh Token -----
+// ╔════════════════════════════╗
+// ║       Refresh Token        ║
+// ╚════════════════════════════╝
 
 #[derive(Debug, Validate)]
 pub struct RefreshTokenInput {
@@ -70,7 +78,10 @@ pub struct RefreshTokenOutput {
     pub refresh_token: String,
 }
 
-// --- Login 2FA ---
+// ╔════════════════════════════╗
+// ║         Login 2FA          ║
+// ╚════════════════════════════╝
+
 #[derive(Debug, Validate)]
 pub struct Login2faInput {
     #[validate(length(min = 1, message = "pre auth token cannot be empty"))]
@@ -85,7 +96,10 @@ pub struct Login2faOutput {
     pub refresh_token: String,
 }
 
-// --- Login Oauth ---
+// ╔════════════════════════════╗
+// ║        Login OAuth         ║
+// ╚════════════════════════════╝
+
 #[derive(Debug, Validate)]
 pub struct OAuthLoginInput {
     #[validate(length(min = 1, message = "provider cannot be empty"))]
@@ -99,7 +113,10 @@ pub struct OAuthLoginOutput {
     pub pkce_verifier: PkceCodeVerifier,
 }
 
-// --- Login Oauth Callback ---
+// ╔════════════════════════════╗
+// ║   Login OAuth Callback     ║
+// ╚════════════════════════════╝
+
 #[derive(Debug, Validate)]
 pub struct OAuthCallbackInput {
     #[validate(length(min = 1, message = "provider cannot be empty"))]

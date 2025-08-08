@@ -50,12 +50,7 @@ CREATE TABLE user_connections (
     user_id BIGINT NOT NULL,
     provider VARCHAR(50) NOT NULL,
     provider_user_id VARCHAR(255) NOT NULL,
-    access_token TEXT,
-    refresh_token TEXT,
-    expires_at TIMESTAMPTZ,
-    scopes TEXT[],
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT fk_user
         FOREIGN KEY(user_id) 

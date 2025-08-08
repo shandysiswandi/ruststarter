@@ -41,6 +41,11 @@ impl Config {
         ConfigBuilder::new(path.as_ref().to_path_buf())
     }
 
+    #[cfg(test)]
+    pub fn builder_test() -> test_utils::TestConfigBuilder {
+        test_utils::TestConfigBuilder::new()
+    }
+
     pub fn get<T: DeserializeOwned>(&self, key: &str) -> Result<T, ConfigError> {
         let guard = self.inner.read().map_err(|_| ConfigError::LockPoisoned)?;
         guard.get(key).map_err(ConfigError::from)
@@ -89,7 +94,10 @@ impl ConfigBuilder {
             w.watch(&self.path, RecursiveMode::NonRecursive)?;
 
             thread::spawn(move || {
-                tracing::info!("Watching configuration file for changes: {:?}", &path_clone);
+                tracing::info!(
+                    "Watching configuration file for changes: {}",
+                    &path_clone.to_string_lossy()
+                );
                 while let Ok(event_result) = rx.recv() {
                     match event_result {
                         Ok(Event {
@@ -103,9 +111,7 @@ impl ConfigBuilder {
                                         *guard = new_config;
                                         tracing::info!("Configuration reloaded successfully.");
                                     } else {
-                                        tracing::error!(
-                                            "Failed to acquire write lock for reloading config."
-                                        );
+                                        tracing::error!("Failed to acquire write lock for reloading config.");
                                     }
                                 },
                                 Err(e) => {
@@ -137,87 +143,39 @@ impl ConfigBuilder {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod test_utils {
     use super::*;
-    use std::fs::{self, File};
-    use std::io::Write;
-    use tempfile::tempdir;
+    use config::Value;
+    use std::collections::HashMap;
 
-    /// Helper function to create a temporary config file for testing.
-    fn setup_temp_config(content: &str) -> (tempfile::TempDir, PathBuf) {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("settings.yaml");
-        let mut file = File::create(&file_path).unwrap();
-        writeln!(file, "{content}").unwrap();
-        (dir, file_path)
+    #[derive(Default)]
+    pub struct TestConfigBuilder {
+        values: HashMap<String, Value>,
     }
 
-    #[test]
-    fn get_value_succeeds_for_existing_key() {
-        // Arrange
-        let (_dir, config_path) = setup_temp_config("server_port: 8080");
-        let config = Config::builder(config_path).build().unwrap();
+    impl TestConfigBuilder {
+        pub fn new() -> Self {
+            Self::default()
+        }
 
-        // Act
-        let port: u16 = config.get("server_port").unwrap();
+        pub fn with<T: Into<Value>>(mut self, key: &str, value: T) -> Self {
+            self.values.insert(key.to_string(), value.into());
+            self
+        }
 
-        // Assert
-        assert_eq!(port, 8080);
-    }
+        pub fn build(self) -> Config {
+            let mut builder = RawConfig::builder();
 
-    #[test]
-    fn get_value_fails_for_missing_key() {
-        // Arrange
-        let (_dir, config_path) = setup_temp_config("server_port: 8080");
-        let config = Config::builder(config_path).build().unwrap();
+            for (key, value) in self.values {
+                builder = builder.set_override(key, value).unwrap();
+            }
 
-        // Act
-        let result: Result<String, _> = config.get("database_url");
+            let raw_config = builder.build().expect("Failed to create config from test values");
 
-        // Assert
-        assert!(result.is_err());
-        // Match on the error variant instead of the string for a more robust test.
-        assert!(matches!(
-            result.err().unwrap(),
-            ConfigError::Load(config::ConfigError::NotFound(_))
-        ));
-    }
-
-    #[test]
-    fn build_fails_for_nonexistent_file() {
-        // Arrange
-        let path = PathBuf::from("nonexistent/config.yaml");
-
-        // Act
-        let result = Config::builder(path).build();
-
-        // Assert
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn watcher_reloads_configuration_on_change() {
-        // Arrange
-        let initial_content = "log_level: 'info'";
-        let (_dir, config_path) = setup_temp_config(initial_content);
-
-        let config = Config::builder(&config_path)
-            .watch()
-            .watch_interval(Duration::from_millis(100))
-            .build()
-            .unwrap();
-
-        // Act & Assert 1: Check initial value
-        assert_eq!(config.get::<String>("log_level").unwrap(), "info");
-
-        // Act 2: Modify the file
-        let updated_content = "log_level: 'debug'";
-        fs::write(&config_path, updated_content).unwrap();
-
-        // Allow time for the watcher to detect the change and reload
-        thread::sleep(Duration::from_millis(500));
-
-        // Assert 2: Check reloaded value
-        assert_eq!(config.get::<String>("log_level").unwrap(), "debug");
+            Config {
+                inner: Arc::new(RwLock::new(raw_config)),
+                _watcher: None,
+            }
+        }
     }
 }

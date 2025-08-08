@@ -41,37 +41,34 @@ pub trait TokenManager: Send + Sync {
     fn validate_generic_token(&self, token: &str) -> Result<Claims, JwtError>;
 }
 
+pub struct JwtConfig {
+    pub access_secret: String,
+    pub refresh_secret: String,
+    pub generic_secret: String,
+    pub access_exp_secs: i64,
+    pub refresh_exp_secs: i64,
+    pub generic_exp_secs: i64,
+    pub issuer: String,
+    pub audience: String,
+}
+
 pub struct JwtService {
-    access_secret: String,
-    refresh_secret: String,
-    generic_secret: String,
-    access_exp_secs: i64,
-    refresh_exp_secs: i64,
-    generic_exp_secs: i64,
-    issuer: String,
-    audience: String,
+    config: JwtConfig,
 }
 
 impl JwtService {
-    pub fn new(
-        access_secret: String,
-        refresh_secret: String,
-        generic_secret: String,
-        access_exp_secs: i64,
-        refresh_exp_secs: i64,
-        generic_exp_secs: i64,
-        issuer: String,
-        audience: String,
-    ) -> Self {
+    pub fn new(config: JwtConfig) -> Self {
         Self {
-            access_secret,
-            refresh_secret,
-            generic_secret,
-            access_exp_secs,
-            refresh_exp_secs,
-            generic_exp_secs,
-            issuer,
-            audience,
+            config: JwtConfig {
+                access_secret: config.access_secret,
+                refresh_secret: config.refresh_secret,
+                generic_secret: config.generic_secret,
+                access_exp_secs: config.access_exp_secs,
+                refresh_exp_secs: config.refresh_exp_secs,
+                generic_exp_secs: config.generic_exp_secs,
+                issuer: config.issuer,
+                audience: config.audience,
+            },
         }
     }
 
@@ -84,8 +81,8 @@ impl JwtService {
         let claims = Claims {
             sub: user_id,
             jti: Uuid::new_v4().to_string(),
-            iss: self.issuer.clone(),
-            aud: self.audience.clone(),
+            iss: self.config.issuer.clone(),
+            aud: self.config.audience.clone(),
             exp,
             iat,
         };
@@ -97,8 +94,8 @@ impl JwtService {
 
     fn validate_token(&self, token: &str, secret: &str) -> Result<Claims, JwtError> {
         let mut validation = Validation::new(Algorithm::HS512);
-        validation.set_issuer(&[&self.issuer]);
-        validation.set_audience(&[&self.audience]);
+        validation.set_issuer(&[&self.config.issuer]);
+        validation.set_audience(&[&self.config.audience]);
 
         decode::<Claims>(token, &DecodingKey::from_secret(secret.as_ref()), &validation)
             .map(|data| data.claims)
@@ -111,26 +108,26 @@ impl JwtService {
 
 impl TokenManager for JwtService {
     fn create_access_token(&self, user_id: i64) -> Result<String, JwtError> {
-        self.create_token(user_id, &self.access_secret, self.access_exp_secs)
+        self.create_token(user_id, &self.config.access_secret, self.config.access_exp_secs)
     }
 
     fn create_refresh_token(&self, user_id: i64) -> Result<String, JwtError> {
-        self.create_token(user_id, &self.refresh_secret, self.refresh_exp_secs)
+        self.create_token(user_id, &self.config.refresh_secret, self.config.refresh_exp_secs)
     }
 
     fn create_generic_token(&self, user_id: i64) -> Result<String, JwtError> {
-        self.create_token(user_id, &self.generic_secret, self.generic_exp_secs)
+        self.create_token(user_id, &self.config.generic_secret, self.config.generic_exp_secs)
     }
 
     fn validate_access_token(&self, token: &str) -> Result<Claims, JwtError> {
-        self.validate_token(token, &self.access_secret)
+        self.validate_token(token, &self.config.access_secret)
     }
 
     fn validate_refresh_token(&self, token: &str) -> Result<Claims, JwtError> {
-        self.validate_token(token, &self.refresh_secret)
+        self.validate_token(token, &self.config.refresh_secret)
     }
 
     fn validate_generic_token(&self, token: &str) -> Result<Claims, JwtError> {
-        self.validate_token(token, &self.generic_secret)
+        self.validate_token(token, &self.config.generic_secret)
     }
 }

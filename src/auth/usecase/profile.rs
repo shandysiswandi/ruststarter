@@ -1,26 +1,46 @@
+use crate::app::config::Config;
 use crate::app::error::AppError;
 use crate::app::password::Hasher;
 use crate::app::storage::StorageService;
-use crate::auth::domain::connection::Connection;
-use crate::auth::domain::mfa::MfaFactor;
-use crate::auth::domain::profile::{
-    ChangePasswordInput, ChangePasswordOutput, DeleteConnectionInput, DeleteConnectionOutput,
-    DeleteMfaFactorInput, DeleteMfaFactorOutput, GetProfileInput, GetProfileOutput, ListConnectionInput,
-    ListMfaFactorInput, SetupTotpInput, SetupTotpOutput, UpdateProfileInput, UpdateProfileOutput,
-    VerifyTotpInput, VerifyTotpOutput,
+use crate::app::uid::Generator;
+use crate::auth::domain::entity::{
+    mfa::{MfaFactor, MfaFactorType},
+    user::{User, UserUpdatePayload},
+    user_connection::UserConnection,
 };
-use crate::auth::outbound::sql::AuthDataSource;
+use crate::auth::domain::inout::prelude::*;
+use crate::auth::outbound::repository::AuthRepository;
 use async_trait::async_trait;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use totp_rs::{Algorithm, Secret, TOTP};
+use uuid::Uuid;
 use validator::Validate;
 
+// Constants for better maintainability and security
+const USER_NOT_FOUND_MSG: &str = "User not found";
+const INVALID_OLD_PASSWORD_MSG: &str = "Invalid old password";
+const INVALID_TOTP_CODE_MSG: &str = "Invalid TOTP code";
+const MFA_FACTOR_UNVERIFIED_MSG: &str = "MFA factor not found or already verified";
+
+// TOTP configuration constants
+const TOTP_DIGITS: usize = 6;
+const TOTP_SKEW: u8 = 1;
+const TOTP_STEP: u64 = 30;
+const TOTP_ALGORITHM: Algorithm = Algorithm::SHA1;
+
+// File upload constants
+const AVATAR_DIR: &str = "avatars";
+const MAX_AVATAR_SIZE: usize = 5 * 1024 * 1024; // 5MB
+const ALLOWED_AVATAR_TYPES: &[&str] = &["image/jpeg", "image/png", "image/jpg", "image/webp"];
+
 #[async_trait]
+#[cfg_attr(test, mockall::automock)]
 pub trait ProfileUseCase: Send + Sync {
     async fn get_profile(&self, input: GetProfileInput) -> Result<GetProfileOutput, AppError>;
     async fn update_profile(&self, input: UpdateProfileInput) -> Result<UpdateProfileOutput, AppError>;
     async fn change_password(&self, input: ChangePasswordInput) -> Result<ChangePasswordOutput, AppError>;
-    async fn list_connections(&self, input: ListConnectionInput) -> Result<Vec<Connection>, AppError>;
+    async fn list_connections(&self, input: ListConnectionInput) -> Result<Vec<UserConnection>, AppError>;
     async fn delete_connection(
         &self,
         input: DeleteConnectionInput,
@@ -34,61 +54,155 @@ pub trait ProfileUseCase: Send + Sync {
 
 #[derive(Clone)]
 pub struct ProfileService {
+    config: Arc<Config>,
+    uid: Arc<dyn Generator>,
     storage: Arc<dyn StorageService>,
     hasher: Arc<dyn Hasher>,
-    user_repo: Arc<dyn AuthDataSource>,
+    repo: Arc<dyn AuthRepository>,
 }
 
 impl ProfileService {
     pub fn new(
+        config: Arc<Config>,
+        uid: Arc<dyn Generator>,
         storage: Arc<dyn StorageService>,
         hasher: Arc<dyn Hasher>,
-        user_repo: Arc<dyn AuthDataSource>,
+        repo: Arc<dyn AuthRepository>,
     ) -> Self {
         Self {
+            config,
+            uid,
             storage,
             hasher,
-            user_repo,
+            repo,
         }
+    }
+
+    async fn get_user_by_id(&self, user_id: i64) -> Result<User, AppError> {
+        self.repo
+            .find_user_by_id(user_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(USER_NOT_FOUND_MSG.to_string()))
+    }
+
+    fn validate_avatar_file(
+        &self,
+        file_name: &str,
+        user_id: i64,
+        data: &[u8],
+    ) -> Result<(String, String), AppError> {
+        if data.len() > MAX_AVATAR_SIZE {
+            return Err(AppError::RequestFormat(
+                "Avatar file too large (max 5MB)".to_string(),
+            ));
+        }
+
+        let content_type = mime_guess::from_path(file_name)
+            .first_or_octet_stream()
+            .to_string();
+
+        if !ALLOWED_AVATAR_TYPES.contains(&content_type.as_str()) {
+            return Err(AppError::RequestFormat(
+                "Invalid avatar format. Only JPEG, JPG, PNG, and WebP are allowed".to_string(),
+            ));
+        }
+
+        let file_extension = std::path::Path::new(file_name)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("jpg");
+
+        let secure_filename = format!("{}/{}{}.{}", AVATAR_DIR, user_id, Uuid::new_v4(), file_extension);
+
+        Ok((secure_filename, content_type))
+    }
+
+    async fn upload_avatar(&self, user_id: i64, file_name: &str, data: Vec<u8>) -> Result<String, AppError> {
+        let (secure_filename, content_type) = self.validate_avatar_file(file_name, user_id, &data)?;
+
+        self.storage
+            .upload_file(&secure_filename, data, &content_type)
+            .await
+    }
+
+    async fn validate_current_password(&self, user_id: i64, current_password: &str) -> Result<(), AppError> {
+        let credential = self
+            .repo
+            .find_user_credential_by_user_id(user_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("User credentials not found".to_string()))?;
+
+        if !self.hasher.verify(current_password, &credential.password)? {
+            return Err(AppError::Unauthorized(INVALID_OLD_PASSWORD_MSG.to_string()));
+        }
+
+        Ok(())
+    }
+
+    fn create_totp_instance(&self, secret_bytes: Vec<u8>, account_name: String) -> Result<TOTP, AppError> {
+        Ok(TOTP::new(
+            TOTP_ALGORITHM,
+            TOTP_DIGITS,
+            TOTP_SKEW,
+            TOTP_STEP,
+            secret_bytes,
+            Some(self.config.get::<String>("jwt.issuer")?),
+            account_name,
+        )?)
+    }
+
+    fn validate_totp_code(&self, totp: &TOTP, code: &str) -> Result<bool, AppError> {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+
+        Ok(totp.check(code, timestamp))
+    }
+
+    async fn safe_delete<F, Fut>(&self, user_id: i64, resource_id: i64, delete_fn: F) -> Result<(), AppError>
+    where
+        F: FnOnce(i64, i64) -> Fut,
+        Fut: std::future::Future<Output = Result<(), AppError>>,
+    {
+        delete_fn(user_id, resource_id).await
     }
 }
 
 #[async_trait]
 impl ProfileUseCase for ProfileService {
     async fn get_profile(&self, input: GetProfileInput) -> Result<GetProfileOutput, AppError> {
-        let user = self
-            .user_repo
-            .find_user_by_id(input.user_id)
-            .await?
-            .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+        let user = self.get_user_by_id(input.user_id).await?;
 
         Ok(GetProfileOutput {
             id: user.id,
             email: user.email,
             full_name: user.full_name,
+            avatar: user.avatar_url,
+            created_at: user.created_at,
+            updated_at: user.updated_at,
         })
     }
 
     async fn update_profile(&self, input: UpdateProfileInput) -> Result<UpdateProfileOutput, AppError> {
         input.validate()?;
 
-        let mut avatar_url = None;
-        if let Some((file_name, data)) = input.avatar {
-            let content_type = mime_guess::from_path(&file_name)
-                .first_or_octet_stream()
-                .to_string();
-            let new_file_name = format!("avatars/{}-{}", input.user_id, file_name);
+        let user = self.get_user_by_id(input.user_id).await?;
 
-            let url = self
-                .storage
-                .upload_file(&new_file_name, data, &content_type)
-                .await?;
-            avatar_url = Some(url);
-        }
+        let avatar_url = if let Some((file_name, data)) = input.avatar {
+            Some(self.upload_avatar(input.user_id, &file_name, data).await?)
+        } else {
+            None
+        };
 
-        self.user_repo
-            .update_user(input.user_id, input.full_name, avatar_url)
+        self.repo
+            .update_user(UserUpdatePayload {
+                id: user.id,
+                email: None,
+                full_name: input.full_name,
+                avatar_url,
+                status: None,
+            })
             .await?;
+
+        tracing::info!("Profile updated successfully for user: {}", input.user_id);
 
         Ok(UpdateProfileOutput { success: true })
     }
@@ -96,68 +210,74 @@ impl ProfileUseCase for ProfileService {
     async fn change_password(&self, input: ChangePasswordInput) -> Result<ChangePasswordOutput, AppError> {
         input.validate()?;
 
-        let user = self
-            .user_repo
-            .find_user_by_id(input.user_id)
-            .await?
-            .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+        let _user = self.get_user_by_id(input.user_id).await?;
+        self.validate_current_password(input.user_id, &input.old_password)
+            .await?;
 
-        self.hasher
-            .verify(&input.old_password, &user.password)?
-            .then_some(())
-            .ok_or_else(|| AppError::Unauthorized("Invalid old password".to_string()))?;
+        if input.old_password == input.new_password {
+            return Err(AppError::RequestFormat(
+                "New password must be different from the current password".to_string(),
+            ));
+        }
 
         let new_hashed_password = self.hasher.hash(&input.new_password)?;
 
-        self.user_repo
-            .update_password(input.user_id, &new_hashed_password)
+        self.repo
+            .update_user_credential(input.user_id, &new_hashed_password)
             .await?;
+
+        tracing::info!("Password changed successfully for user: {}", input.user_id);
+
+        // TODO: In production, consider invalidating all user sessions after password change
+        // self.session_service.invalidate_all_user_sessions(input.user_id).await?;
 
         Ok(ChangePasswordOutput { success: true })
     }
 
-    async fn list_connections(&self, input: ListConnectionInput) -> Result<Vec<Connection>, AppError> {
-        let connections = self.user_repo.find_connections_by_user_id(input.user_id).await?;
-        Ok(connections)
+    async fn list_connections(&self, input: ListConnectionInput) -> Result<Vec<UserConnection>, AppError> {
+        let user = self.get_user_by_id(input.user_id).await?;
+
+        self.repo.find_user_connections_by_user_id(user.id).await
     }
 
     async fn delete_connection(
         &self,
         input: DeleteConnectionInput,
     ) -> Result<DeleteConnectionOutput, AppError> {
-        let deleted_count = self
-            .user_repo
-            .delete_connection_by_id(input.user_id, input.connection_id)
-            .await?;
+        self.safe_delete(input.user_id, input.connection_id, |user_id, conn_id| {
+            self.repo.delete_oauth_user(user_id, conn_id)
+        })
+        .await?;
 
-        if deleted_count == 0 {
-            return Err(AppError::NotFound(
-                "Connection not found or you do not have permission to delete it".to_string(),
-            ));
-        }
+        tracing::info!(
+            "Connection {} deleted for user: {}",
+            input.connection_id,
+            input.user_id
+        );
 
         Ok(DeleteConnectionOutput { success: true })
     }
 
     async fn list_mfa_factors(&self, input: ListMfaFactorInput) -> Result<Vec<MfaFactor>, AppError> {
-        let factors = self.user_repo.find_mfa_factors_by_user_id(input.user_id).await?;
-        Ok(factors)
+        let user = self.get_user_by_id(input.user_id).await?;
+
+        self.repo.find_mfa_factors_by_user_id(user.id).await
     }
 
     async fn delete_mfa_factor(
         &self,
         input: DeleteMfaFactorInput,
     ) -> Result<DeleteMfaFactorOutput, AppError> {
-        let deleted_count = self
-            .user_repo
-            .delete_mfa_factor_by_id(input.user_id, input.mfa_factor_id)
-            .await?;
+        self.safe_delete(input.user_id, input.mfa_factor_id, |user_id, factor_id| {
+            self.repo.delete_mfa_factor_by_id(user_id, factor_id)
+        })
+        .await?;
 
-        if deleted_count == 0 {
-            return Err(AppError::NotFound(
-                "MFA factor not found or you do not have permission to delete it".to_string(),
-            ));
-        }
+        tracing::info!(
+            "MFA factor {} deleted for user: {}",
+            input.mfa_factor_id,
+            input.user_id
+        );
 
         Ok(DeleteMfaFactorOutput { success: true })
     }
@@ -165,30 +285,31 @@ impl ProfileUseCase for ProfileService {
     async fn setup_totp(&self, input: SetupTotpInput) -> Result<SetupTotpOutput, AppError> {
         input.validate()?;
 
-        let user = self
-            .user_repo
-            .find_user_by_id(input.user_id)
-            .await?
-            .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+        let user = self.get_user_by_id(input.user_id).await?;
+        let secret = Secret::generate_secret();
+        let secret_bytes = secret.to_bytes()?;
+        let totp = self.create_totp_instance(secret_bytes, user.email.clone())?;
 
-        let secret = Secret::default();
-
-        let totp = TOTP::new(
-            Algorithm::SHA1,
-            6,
-            1,
-            30,
-            secret.to_bytes()?,
-            Some(input.issuer),
-            user.email,
-        )?;
-
-        let factor_id = self
-            .user_repo
-            .create_mfa_factor(input.user_id, &secret.to_string(), &input.friendly_name)
+        let factor_id = self.uid.generate()?;
+        self.repo
+            .create_mfa_factor(MfaFactor {
+                id: factor_id,
+                user_id: user.id,
+                mfa_type: MfaFactorType::Totp,
+                friendly_name: Some(input.friendly_name),
+                secret: secret.to_string(),
+            })
             .await?;
 
-        let qr_code_image = totp.get_qr_base64().map_err(|e| AppError::TotpQrGeneration(e))?;
+        let qr_code_image = totp
+            .get_qr_base64()
+            .map_err(|_| AppError::TotpQrGeneration("Failed to generate QR code image".into()))?;
+
+        tracing::info!(
+            "TOTP setup initiated for user: {} with factor: {}",
+            input.user_id,
+            factor_id
+        );
 
         Ok(SetupTotpOutput {
             factor_id,
@@ -200,21 +321,29 @@ impl ProfileUseCase for ProfileService {
     async fn verify_totp(&self, input: VerifyTotpInput) -> Result<VerifyTotpOutput, AppError> {
         input.validate()?;
 
+        let user = self.get_user_by_id(input.user_id).await?;
+
         let factor = self
-            .user_repo
-            .find_unverified_mfa_factor_by_id(input.user_id, input.factor_id)
+            .repo
+            .find_unverified_mfa_factor_by_id_and_user_id(input.user_id, input.factor_id)
             .await?
-            .ok_or_else(|| AppError::NotFound("MFA factor not found or already verified".to_string()))?;
+            .ok_or_else(|| AppError::NotFound(MFA_FACTOR_UNVERIFIED_MSG.to_string()))?;
 
-        let secret_bytes = Secret::Encoded(factor.secret).to_bytes()?;
-        let totp = TOTP::new_unchecked(Algorithm::SHA1, 6, 1, 30, secret_bytes, None, "".to_string());
+        let secret_bytes = Secret::Encoded(factor.secret.clone()).to_bytes()?;
 
-        if !totp.check_current(&input.code).unwrap_or(false) {
-            return Err(AppError::Unauthorized("Invalid TOTP code".to_string()));
+        let totp = self.create_totp_instance(secret_bytes, user.email)?;
+
+        if !self.validate_totp_code(&totp, &input.code)? {
+            return Err(AppError::Unauthorized(INVALID_TOTP_CODE_MSG.to_string()));
         }
 
-        // 3. If the code is valid, mark the factor as verified in the database.
-        self.user_repo.verify_mfa_factor(input.factor_id).await?;
+        self.repo.verify_mfa_factor(input.factor_id).await?;
+
+        tracing::info!(
+            "TOTP factor {} verified for user: {}",
+            input.factor_id,
+            input.user_id
+        );
 
         Ok(VerifyTotpOutput { success: true })
     }

@@ -1,16 +1,9 @@
-use super::authn_model::{
-    Login2faRequest, Login2faResponse, LoginRequest, LoginResponse, LogoutRequest, LogoutResponse,
-    OAuthCallbackRequest, OAuthCallbackResponse, RefreshTokenRequest, RefreshTokenResponse, RegisterRequest,
-    RegisterResponse,
-};
 use crate::app::error::AppError;
 use crate::app::extractors::{AppJson, AppPath, AppQuery};
 use crate::app::response::Response;
 use crate::app::state::AppState;
-use crate::auth::domain::authn::{
-    Login2faInput, LoginInput, LogoutInput, OAuthCallbackInput, OAuthLoginInput, RefreshTokenInput,
-    RegisterInput,
-};
+use crate::auth::domain::inout::prelude::*;
+use crate::auth::inbound::model::prelude::*;
 use axum::{
     debug_handler,
     extract::State,
@@ -33,8 +26,23 @@ pub async fn login(State(state): State<AppState>, AppJson(req): AppJson<LoginReq
             password: req.password,
         })
         .await
-        .map(LoginResponse::from)
-        .map(Response::new)
+        .map(|output| match output {
+            LoginOutput::Success {
+                access_token,
+                refresh_token,
+            } => LoginResponse::Success {
+                access_token,
+                refresh_token,
+            },
+            LoginOutput::MfaRequired {
+                mfa_required,
+                pre_auth_token,
+            } => LoginResponse::MfaRequired {
+                mfa_required,
+                pre_auth_token,
+            },
+        })
+        .map(Response::from)
 }
 
 #[debug_handler]
@@ -51,8 +59,11 @@ pub async fn register(
             password: req.password,
         })
         .await
-        .map(RegisterResponse::from)
-        .map(Response::new)
+        .map(|output| RegisterResponse {
+            success: output.success,
+            message: output.message,
+        })
+        .map(Response::from)
 }
 
 #[debug_handler]
@@ -67,8 +78,11 @@ pub async fn refresh_token(
             refresh_token: req.refresh_token,
         })
         .await
-        .map(RefreshTokenResponse::from)
-        .map(Response::new)
+        .map(|output| RefreshTokenResponse {
+            access_token: output.access_token,
+            refresh_token: output.refresh_token,
+        })
+        .map(Response::from)
 }
 
 #[debug_handler]
@@ -83,8 +97,10 @@ pub async fn logout(
             refresh_token: req.refresh_token,
         })
         .await
-        .map(LogoutResponse::from)
-        .map(Response::new)
+        .map(|output| LogoutResponse {
+            success: output.success,
+        })
+        .map(Response::from)
 }
 
 #[debug_handler]
@@ -100,8 +116,11 @@ pub async fn login_2fa(
             mfa_code: req.mfa_code,
         })
         .await
-        .map(Login2faResponse::from)
-        .map(Response::new)
+        .map(|output| Login2faResponse {
+            access_token: output.access_token,
+            refresh_token: output.refresh_token,
+        })
+        .map(Response::from)
 }
 
 #[debug_handler]
@@ -142,26 +161,32 @@ pub async fn oauth_callback(
     AppQuery(query): AppQuery<OAuthCallbackRequest>,
 ) -> impl IntoResponse {
     if let Some(err) = query.error {
-        return Err(AppError::Forbidden(format!("Error OAuth from provider {}", err)));
+        return Err(AppError::Forbidden(format!("OAuth authentication failed: {err}")));
     }
+
+    let code = query
+        .code
+        .ok_or_else(|| AppError::Forbidden("Missing authorization code".to_string()))?;
 
     let oauth_state_cookie = cookies
         .private(&state.cookie_key)
         .get(COOKIE_OAUTH_STATE)
-        .ok_or_else(|| AppError::Forbidden("Missing or invalid OAuth cookie".to_string()))?;
+        .ok_or_else(|| AppError::Forbidden("OAuth session expired or invalid".to_string()))?;
 
     cookies
         .private(&state.cookie_key)
         .remove(Cookie::new(COOKIE_OAUTH_STATE, ""));
 
-    let oauth_state: serde_json::Value = serde_json::from_str(oauth_state_cookie.value())?;
+    let oauth_state: serde_json::Value = serde_json::from_str(oauth_state_cookie.value())
+        .map_err(|_| AppError::Forbidden("Invalid OAuth state format".to_string()))?;
 
-    let stored_csrf_str = oauth_state[KEY_OAUTH_STATE_CSRF]
-        .as_str()
-        .ok_or_else(|| AppError::Internal)?;
+    let stored_csrf_token = oauth_state
+        .get(KEY_OAUTH_STATE_CSRF)
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::Forbidden("Invalid OAuth state structure".to_string()))?;
 
-    if query.state != stored_csrf_str {
-        return Err(AppError::Forbidden("Invalid OAuth state".to_string()));
+    if query.state != stored_csrf_token {
+        return Err(AppError::Forbidden("Invalid OAuth state token".to_string()));
     }
 
     let pkce_verifier_secret = oauth_state[KEY_OAUTH_STATE_PKCE]
@@ -171,19 +196,18 @@ pub async fn oauth_callback(
 
     tracing::info!("nyampe gak {:?}", pkce_verifier_secret);
 
-    if let None = query.code {
-        return Err(AppError::Forbidden("Invalid OAuth code".to_string()));
-    }
-
     state
         .auth
         .authn
         .oauth_callback(OAuthCallbackInput {
             provider,
-            code: query.code.unwrap(),
+            code,
             pkce_verifier_secret,
         })
         .await
-        .map(OAuthCallbackResponse::from)
-        .map(Response::new)
+        .map(|output| OAuthCallbackResponse {
+            access_token: output.access_token,
+            refresh_token: output.refresh_token,
+        })
+        .map(Response::from)
 }

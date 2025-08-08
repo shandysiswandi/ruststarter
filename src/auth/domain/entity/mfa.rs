@@ -30,13 +30,14 @@ impl fmt::Display for MfaFactorType {
             MfaFactorType::BackupCode => "BackupCode",
             MfaFactorType::Whatsapp => "Whatsapp",
         };
-        write!(f, "{}", name)
+        write!(f, "{name}")
     }
 }
 
 pub struct MfaFactor {
     pub id: i64,
+    pub user_id: i64,
     pub mfa_type: MfaFactorType,
-    pub friendly_name: String,
+    pub friendly_name: Option<String>,
     pub secret: String,
 }
