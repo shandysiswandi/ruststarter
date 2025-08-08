@@ -1,4 +1,4 @@
-use crate::auth::domain::user::User;
+use crate::auth::domain::entity::user::User;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -32,8 +32,34 @@ impl From<User> for UserResponse {
             id: output.id,
             email: output.email,
             full_name: output.full_name,
-            avatar_url: Some(output.avatar),
+            avatar_url: output.avatar_url,
             status: output.status.to_string(),
         }
     }
+}
+
+//
+
+#[derive(Deserialize)]
+pub struct UpdateUserRequest {
+    pub id: i64,
+    pub email: Option<String>,
+    pub full_name: Option<String>,
+    pub status: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct UpdateUserResponse {
+    pub success: bool,
+}
+
+//
+#[derive(Deserialize)]
+pub struct SetUserRolesRequest {
+    pub role_ids: Vec<i64>,
+}
+
+#[derive(Serialize)]
+pub struct SetUserRolesResponse {
+    pub success: bool,
 }

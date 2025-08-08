@@ -74,10 +74,7 @@ impl Snowflake {
 
 impl Generator for Snowflake {
     fn generate(&self) -> Result<i64, SnowflakeError> {
-        let mut state = self
-            .state
-            .lock()
-            .expect("BUG: Snowflake mutex was poisoned!");
+        let mut state = self.state.lock().expect("BUG: Snowflake mutex was poisoned!");
         let mut timestamp = self.current_timestamp_millis();
 
         if timestamp < state.last_timestamp {
@@ -165,10 +162,7 @@ mod tests {
     #[test]
     fn builder_should_fail_with_invalid_worker_id() {
         let result = Snowflake::builder(MAX_WORKER_ID + 1).build();
-        assert!(matches!(
-            result,
-            Err(SnowflakeError::WorkerIdOutOfRange { .. })
-        ));
+        assert!(matches!(result, Err(SnowflakeError::WorkerIdOutOfRange { .. })));
     }
 
     #[test]
@@ -179,10 +173,7 @@ mod tests {
 
         for _ in 0..num_ids {
             let id = generator.generate().unwrap();
-            assert!(
-                ids.insert(id),
-                "Duplicate ID generated on sequence overflow"
-            );
+            assert!(ids.insert(id), "Duplicate ID generated on sequence overflow");
         }
         assert_eq!(ids.len(), num_ids);
     }
@@ -219,10 +210,7 @@ mod tests {
         for handle in handles {
             let ids = handle.join().unwrap();
             for id in ids {
-                assert!(
-                    all_ids.insert(id),
-                    "Found duplicate ID in multi-threaded test"
-                );
+                assert!(all_ids.insert(id), "Found duplicate ID in multi-threaded test");
             }
         }
 

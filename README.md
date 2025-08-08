@@ -1,7 +1,6 @@
 # RustStarter
 
 [![CI](https://github.com/shandysiswandi/ruststarter/actions/workflows/ci.yaml/badge.svg)](https://github.com/shandysiswandi/ruststarter/actions/workflows/ci.yml)
-[![Crates.io](https://img.shields.io/crates/v/ruststarter.svg)](https://crates.io/crates/ruststarter)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 A modern, modular, and production-ready authentication and authorization server built in Rust. This project serves as a robust foundation for building secure and scalable web services, following Clean Architecture principles for a clear separation of concerns.

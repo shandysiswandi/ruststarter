@@ -1,0 +1,36 @@
+sequenceDiagram
+    participant Client
+    participant Service as LoginService
+    participant Repo
+    participant Hasher
+    participant Token
+    participant Session
+
+    Client->>Service: login(input: LoginInput)
+    Service->>Service: validate input
+    Service->>Repo: find_user_by_email(email)
+    Repo-->>Service: User | None
+    Service->>Service: check if user exists
+    Service->>Service: check user status == Active
+    Service->>Repo: find_user_credential_by_user_id(user.id)
+    Repo-->>Service: Credential | None
+    Service->>Hasher: verify(password, stored_hash)
+    Hasher-->>Service: true | false
+
+    Service->>Repo: find_mfa_factors_by_user_id(user.id)
+    Repo-->>Service: MFA factors list
+    alt MFA factors exist
+        Service->>Token: create_generic_token(user.id)
+        Token-->>Service: pre_auth_token
+        Service-->>Client: LoginOutput::MfaRequired
+    else No MFA factors
+        Service->>Token: create_access_token(user.id)
+        Token-->>Service: access_token
+        Service->>Token: create_refresh_token(user.id)
+        Token-->>Service: refresh_token
+        Service->>Token: validate_refresh_token(refresh_token)
+        Token-->>Service: claims
+        Service->>Session: add_token(claims.jti, exp)
+        Session-->>Service: OK
+        Service-->>Client: LoginOutput::Success
+    end

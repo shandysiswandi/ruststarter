@@ -12,6 +12,7 @@ pub struct GetProfileOutput {
     pub id: i64,
     pub email: String,
     pub full_name: String,
+    pub avatar: Option<String>,
 }
 
 // Update Profile
@@ -84,8 +85,6 @@ pub struct SetupTotpInput {
     pub user_id: i64,
     #[validate(length(min = 1))]
     pub friendly_name: String,
-    // These are used for generating the QR code URI.
-    pub issuer: String,
 }
 
 pub struct SetupTotpOutput {

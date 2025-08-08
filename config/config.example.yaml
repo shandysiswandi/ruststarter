@@ -19,9 +19,17 @@ database:
   # Format: postgres://[user]:[password]@[host]:[port]/[database_name]
   url: "postgres://user:password@localhost:5432/rust"
   
-  # Maximum number of connections in the pool.
-  max_connections: 5
-
+  # Connection Pool Settings
+  min_connections: 5
+  max_connections: 20
+  connect_timeout_secs: 8
+  acquire_timeout_secs: 8
+  idle_timeout_secs: 120 # 2 minutes
+  max_lifetime_secs: 600 # 10 minutes
+  
+  # Logging Settings
+  sqlx_logging: true
+  
 # -----------------------------------------------------------------------------
 # Redis Configuration
 # -----------------------------------------------------------------------------

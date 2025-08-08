@@ -3,8 +3,7 @@
 use argon2::{
     Argon2,
     password_hash::{
-        Error as Argon2Error, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
-        rand_core::OsRng,
+        Error as Argon2Error, PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng,
     },
 };
 use thiserror::Error;
@@ -44,10 +43,7 @@ impl Hasher for Argon2Hasher<'_> {
     fn hash(&self, plain: &str) -> Result<String, HashingError> {
         let salt = SaltString::generate(&mut OsRng);
 
-        let hash = self
-            .argon2
-            .hash_password(plain.as_bytes(), &salt)?
-            .to_string();
+        let hash = self.argon2.hash_password(plain.as_bytes(), &salt)?.to_string();
 
         Ok(hash)
     }

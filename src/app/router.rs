@@ -1,10 +1,9 @@
 use super::state::AppState;
-use crate::auth;
 use axum::{Json, Router, http::StatusCode, routing};
 
 pub fn create_router_app(app_state: AppState) -> Router {
     Router::new()
-        .merge(auth::inbound::create_router(app_state.clone()))
+        .merge(crate::auth::inbound::router::create_router(app_state.clone()))
         .route(
             "/",
             routing::get(|| async { Json(serde_json::json!({"message": "Hello from Rust Starter"})) }),

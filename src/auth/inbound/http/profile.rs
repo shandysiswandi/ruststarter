@@ -1,17 +1,9 @@
-use super::profile_model::GetProfileResponse;
 use crate::app::extractors::{AppJson, AppPath};
+use crate::app::jwt::Claims;
 use crate::app::response::Response;
 use crate::app::state::AppState;
-use crate::auth::domain::profile::{
-    DeleteConnectionInput, DeleteMfaFactorInput, ListConnectionInput, ListMfaFactorInput, SetupTotpInput,
-    VerifyTotpInput,
-};
-use crate::auth::inbound::profile_model::{
-    ChangePasswordResponse, ConnectionResponse, DeleteConnectionResponse, DeleteMfaFactorResponse,
-    MfaFactorResponse, SetupTotpRequest, SetupTotpResponse, UpdateProfileRequest, UpdateProfileResponse,
-    VerifyTotpRequest, VerifyTotpResponse,
-};
-use crate::{app::jwt::Claims, auth::inbound::profile_model::ChangePasswordRequest};
+use crate::auth::domain::inout::prelude::*;
+use crate::auth::inbound::model::prelude::*;
 use axum::{Json, debug_handler, extract::Multipart, extract::State, response::IntoResponse};
 
 #[debug_handler]
@@ -19,10 +11,15 @@ pub async fn get_profile(State(state): State<AppState>, claims: Claims) -> impl 
     state
         .auth
         .profile
-        .get_profile(claims.into())
+        .get_profile(GetProfileInput { user_id: claims.sub })
         .await
-        .map(GetProfileResponse::from)
-        .map(Response::new)
+        .map(|output| GetProfileResponse {
+            id: output.id,
+            email: output.email,
+            full_name: output.full_name,
+            avatar_url: output.avatar,
+        })
+        .map(Response::from)
 }
 
 #[debug_handler]
@@ -36,10 +33,16 @@ pub async fn update_profile(
     state
         .auth
         .profile
-        .update_profile((claims, req).into())
+        .update_profile(UpdateProfileInput {
+            user_id: claims.sub,
+            full_name: req.full_name,
+            avatar: req.avatar,
+        })
         .await
-        .map(UpdateProfileResponse::from)
-        .map(Response::new)
+        .map(|output| UpdateProfileResponse {
+            success: output.success,
+        })
+        .map(Response::from)
 }
 
 #[debug_handler]
@@ -51,10 +54,16 @@ pub async fn change_password(
     state
         .auth
         .profile
-        .change_password((claims, req).into())
+        .change_password(ChangePasswordInput {
+            user_id: claims.sub,
+            old_password: req.old_password,
+            new_password: req.new_password,
+        })
         .await
-        .map(ChangePasswordResponse::from)
-        .map(Response::new)
+        .map(|output| ChangePasswordResponse {
+            success: output.success,
+        })
+        .map(Response::from)
 }
 
 #[debug_handler]
@@ -64,13 +73,13 @@ pub async fn list_connections(State(state): State<AppState>, claims: Claims) -> 
         .profile
         .list_connections(ListConnectionInput { user_id: claims.sub })
         .await
-        .map(|conns| {
-            conns
+        .map(|user_connections| {
+            user_connections
                 .into_iter()
                 .map(ConnectionResponse::from)
                 .collect::<Vec<_>>()
         })
-        .map(Response::new)
+        .map(Response::from)
 }
 
 #[debug_handler]
@@ -87,8 +96,10 @@ pub async fn delete_connection(
             connection_id,
         })
         .await
-        .map(DeleteConnectionResponse::from)
-        .map(Response::new)
+        .map(|output| DeleteConnectionResponse {
+            success: output.success,
+        })
+        .map(Response::from)
 }
 
 #[debug_handler]
@@ -98,13 +109,13 @@ pub async fn list_mfa_factors(State(state): State<AppState>, claims: Claims) -> 
         .profile
         .list_mfa_factors(ListMfaFactorInput { user_id: claims.sub })
         .await
-        .map(|factors| {
-            factors
+        .map(|mfa_factors| {
+            mfa_factors
                 .into_iter()
                 .map(MfaFactorResponse::from)
                 .collect::<Vec<_>>()
         })
-        .map(Response::new)
+        .map(Response::from)
 }
 
 #[debug_handler]
@@ -121,8 +132,10 @@ pub async fn delete_mfa_factor(
             mfa_factor_id: factor_id,
         })
         .await
-        .map(DeleteMfaFactorResponse::from)
-        .map(Response::new)
+        .map(|output| DeleteMfaFactorResponse {
+            success: output.success,
+        })
+        .map(Response::from)
 }
 
 #[debug_handler]
@@ -137,11 +150,14 @@ pub async fn setup_totp(
         .setup_totp(SetupTotpInput {
             user_id: claims.sub,
             friendly_name: payload.friendly_name,
-            issuer: claims.iss,
         })
         .await
-        .map(SetupTotpResponse::from)
-        .map(Response::new)
+        .map(|output| SetupTotpResponse {
+            factor_id: output.factor_id,
+            secret: output.secret,
+            qr_code_image: output.qr_code_image,
+        })
+        .map(Response::from)
 }
 
 #[debug_handler]
@@ -160,6 +176,8 @@ pub async fn verify_totp(
             code: req.code,
         })
         .await
-        .map(VerifyTotpResponse::from)
-        .map(Response::new)
+        .map(|output| VerifyTotpResponse {
+            success: output.success,
+        })
+        .map(Response::from)
 }

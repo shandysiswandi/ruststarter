@@ -21,7 +21,7 @@ DATABASE_URL := postgres://user:password@localhost:5432/rust
 # Phony Targets (Commands that are not files)
 # =============================================================================
 
-.PHONY: install run build test test-cov format lint clean migrate-up migrate-down migrate-fix docker-build help
+.PHONY: install run gen-orm build test test-cov format lint clean migrate-up migrate-down migrate-fix docker-build help
 
 # Set the default goal to 'help' so running `make` shows the help message.
 .DEFAULT_GOAL := help
@@ -31,10 +31,15 @@ DATABASE_URL := postgres://user:password@localhost:5432/rust
 # =============================================================================
 
 install: ## Install all required development tools.
-	@echo ">> Installing development tools (cargo-watch, cargo-tarpaulin, goose)..."
+	@echo ">> Installing development tools (cargo-watch, cargo-tarpaulin, sea-orm-cli, goose)..."
 	@$(CARGO) install cargo-watch
 	@$(CARGO) install cargo-tarpaulin
+	@$(CARGO) install sea-orm-cli
 	@go install github.com/pressly/goose/v3/cmd/goose@latest
+
+gen-orm: ## Generate ...
+	@echo ">> Generating ..."
+	@sea generate entity -o src/orm
 
 run: ## Run the application in watch mode for live reloading.
 	@echo ">> Starting application in watch mode..."

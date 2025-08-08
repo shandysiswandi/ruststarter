@@ -1,10 +1,4 @@
 <!-- users/authz -->
-GET	    /api/users                        private
-GET	    /api/users/{userId}               private
-PATCH	/api/users/{userId}               private
-POST	/api/users/{userId}/roles         private // it can be merge
-DELETE	/api/users/{userId}/roles         private // it can be merge
-
 GET	    /api/roles                        private
 POST	/api/roles                        private
 GET	    /api/roles/{roleId}               private
