@@ -1,18 +1,24 @@
-FROM rust:1.88-slim AS builder
-RUN rustup target add x86_64-unknown-linux-musl
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    musl-tools \
-    && rm -rf /var/lib/apt/lists/*
-WORKDIR /app
-RUN cargo init --bin
-COPY Cargo.toml Cargo.lock ./
-RUN cargo build --release --target x86_64-unknown-linux-musl
-RUN rm -rf src/
-COPY src ./src
-RUN cargo build --release --target x86_64-unknown-linux-musl
+# ==========
+# Builder
+# ==========
+FROM rust:1.89-slim AS builder
 
-FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/ruststarter /
-COPY config/config.yaml /config/config.yaml
+# Install necessary build dependencies for dynamic linking (e.g., against OpenSSL).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # build-essential \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY . .
+RUN cargo build --release --bin ruststarter
+
+
+# ==========
+# Runtime
+# ==========
+FROM gcr.io/distroless/cc-debian12:debug
+COPY --from=builder /app/target/release/ruststarter /ruststarter
 EXPOSE 8000
 CMD ["/ruststarter"]
