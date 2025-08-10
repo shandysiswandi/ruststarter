@@ -1,16 +1,23 @@
 # Ignore version control files
 .git
 .gitignore
-.github
+.github/
 .vscode/
 
-# Ignore migrations
+# Ignore Dir
 migrations/
-
-# Ignore build artifacts
+docs/
 target/
 
 README.md
 LICENSE
 compose.yaml
 .env
+.env.example
+clippy.toml
+rustfmt.toml
+compose.yaml
+Dockerfile
+Makefile
+tarpaulin-report.html
+TODO.md

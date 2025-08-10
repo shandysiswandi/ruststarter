@@ -1,0 +1,31 @@
+[package]
+name = "auth"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# local
+app-core = { workspace = true }
+app-orm = { workspace = true }
+# third party
+serde = { workspace = true }
+tokio = { workspace = true }
+sea-orm = { workspace = true }
+axum = { workspace = true }
+axum-extra = { workspace = true }
+chrono = { workspace = true }
+validator = { workspace = true }
+oauth2 = { workspace = true }
+totp-rs = { workspace = true }
+async-trait = { workspace = true }
+redis = { workspace = true }
+bb8-redis = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+base64 = { workspace = true }
+mime_guess = { workspace = true }
+serde_json = { workspace = true }
+tower-cookies = { workspace = true }
+
+[dev-dependencies]
+mockall = { workspace = true }

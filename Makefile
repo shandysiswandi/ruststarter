@@ -33,17 +33,18 @@ DATABASE_URL := postgres://user:password@localhost:5432/rust
 install: ## Install all required development tools.
 	@echo ">> Installing development tools (cargo-watch, cargo-tarpaulin, sea-orm-cli, goose)..."
 	@$(CARGO) install cargo-watch
-	@$(CARGO) install cargo-tarpaulin
+	@$(CARGO) install cargo-llvm-cov
 	@$(CARGO) install sea-orm-cli
+	@rustup install nightly
 	@go install github.com/pressly/goose/v3/cmd/goose@latest
 
 gen-orm: ## Generate code sea orm entities.
 	@echo ">> Generating code orm entities..."
-	@sea generate entity -o src/orm
+	@sea generate entity -o crates/app-orm/src/entities
 
 run: ## Run the application in watch mode for live reloading.
 	@echo ">> Starting application in watch mode..."
-	@$(CARGO) watch -q -c -w src -x run
+	@$(CARGO) watch -q -c -w src -w crates -x run
 
 build: ## Build the application for release with optimizations.
 	@echo ">> Building release binary..."
@@ -59,15 +60,15 @@ clean: ## Remove build artifacts.
 
 test: ## Run the test suite.
 	@echo ">> Running tests..."
-	@$(CARGO) test --lib
+	@$(CARGO) test --lib -p auth -p app-core
 
 test-cov: ## Run tests and generate an HTML code coverage report.
 	@echo ">> Generating code coverage report..."
-	@$(CARGO) tarpaulin --lib --timeout 120 --out Html --exclude-files "src/orm/*"
+	@$(CARGO) llvm-cov --lib --html -p auth -p app-core
 
 format: ## Format the code using rustfmt.
 	@echo ">> Formatting code..."
-	@$(CARGO) fmt
+	@$(CARGO) +nightly fmt
 
 lint: ## Lint the code using clippy, failing on any warnings.
 	@echo ">> Linting code..."
