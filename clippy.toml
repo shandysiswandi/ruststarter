@@ -1,3 +1,9 @@
 # Set a reasonable cognitive complexity threshold. Functions more complex than this
 # should likely be refactored.
 cognitive-complexity-threshold = 25
+
+# Enforce doc comments on public items
+missing-docs-in-crate-items = true
+
+# Avoid wildcard/glob imports for clarity
+avoid-breaking-exported-api = true
