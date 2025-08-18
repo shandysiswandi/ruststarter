@@ -1,20 +1,39 @@
-edition = "2024"
+# ============================
+# Rustfmt Configuration
+# ============================
 
-# The maximum width of a line.
-max_width = 110
+# --- Line Length ---
+max_width = 120
+use_small_heuristics = "Max"
 
-# Reorder imports alphabetically.
-reorder_imports = true
-
-# Enforce a trailing comma on vertical lists (structs, enums, function args, etc.).
-match_block_trailing_comma = true
-
-# Use spaces instead of tabs. The universal standard.
+# --- Indentation & Braces ---
 hard_tabs = false
 tab_spaces = 4
+brace_style = "SameLineWhere"
+control_brace_style = "AlwaysSameLine"
 
-# Use shorthand notation for struct fields: `Struct { field }` instead of `Struct { field: field }`.
-use_field_init_shorthand = true
+# --- Imports ---
+imports_granularity = "Module"      # (nightly) Group imports at module level
+group_imports = "StdExternalCrate"  # (nightly) Std | external | crate imports separated
+reorder_imports = true
+reorder_modules = true
 
-# Don't reorder `mod` statements. The order is often semantically important.
-reorder_modules = false
+# --- Formatting Style ---
+normalize_doc_attributes = true     # (nightly) Convert `///` to `//!` where appropriate
+format_code_in_doc_comments = true  # (nightly) Formats code inside doc comments
+wrap_comments = true                # Wrap long comments to max_width
+
+# --- Chains & Expressions ---
+chain_width = 80                    # Wrap method chains after this width
+fn_call_width = 80                  # Wrap function calls after this width
+single_line_if_else_max_width = 80  # Keep short if-else on one line
+
+# --- Misc ---
+edition = "2024"
+merge_derives = true                # Combine multiple #[derive] into one
+newline_style = "Unix"              # Always use LF
+match_block_trailing_comma = true   # (nightly) Adds trailing commas in match arms
+use_field_init_shorthand = true     # (nightly) Uses `{ field }` instead of `{ field: field }`
+
+# --- Unstable Nightly Features ---
+unstable_features = true           # Needed for nightly-only options

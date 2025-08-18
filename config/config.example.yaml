@@ -42,6 +42,19 @@ redis:
   max_connections: 10
 
 # -----------------------------------------------------------------------------
+# Mail Configuration
+# -----------------------------------------------------------------------------
+mail:
+  # Host of the SMTP server.
+  host: localhost
+
+  # Port number of the SMTP server.
+  port: 1025
+
+  # Default "From" address used when sending emails.
+  from: "no-reply@example.com"
+
+# -----------------------------------------------------------------------------
 # Session Configuration
 # -----------------------------------------------------------------------------
 session:
@@ -110,6 +123,20 @@ jwt:
   audience: "web-app"
 
 # -----------------------------------------------------------------------------
+# Crypto Settings
+# -----------------------------------------------------------------------------
+crypto:
+  # Secret key used to derive the AES-GCM encryption key. 
+  # This can be any sufficiently long string, ideally from environment secrets.
+  # Generate with: openssl rand -base64 64
+  secret: "supersecretstring_from_env_or_kms"
+
+  # Salt used for key derivation. Should be consistent per environment.
+  # Can also be a random value for per-user secrets if stored with ciphertext.
+  # Generate with: openssl rand -base64 32
+  salt: "my_app_salt"
+
+# -----------------------------------------------------------------------------
 # Application-specific Settings
 # -----------------------------------------------------------------------------
 # Unique ID for this specific instance of the application, used for the
@@ -117,4 +144,7 @@ jwt:
 # Each running instance of your application should have a unique worker_id.
 snowflake:
   worker_id: 1
+  epoch: 1753981200000 # 2025-08-01 00:00:00 +07:00
 
+# Base URL to redirect users to after email verification
+redirect_to: "http://localhost:5173"

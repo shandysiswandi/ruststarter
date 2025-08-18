@@ -3,106 +3,120 @@ name = "ruststarter"
 version = "0.1.0"
 edition = "2024"
 description = "A production-ready authentication and authorization server."
-license = "MIT OR Apache-2.0"
+license = "MIT"
 repository = "https://github.com/shandysiswandi/ruststarter"
 readme = "README.md"
 
 # -----------------------------------------------------------------------------
-# Release Profile - Optimized for Production
+# Workspace Members
 # -----------------------------------------------------------------------------
-[profile.release]
-opt-level = 3     # Enable full optimizations.
-lto = "thin"      # Enable "thin" Link-Time Optimization for better performance.
-codegen-units = 1 # Maximize optimizations by building the entire crate as one unit.
-strip = "symbols" # Remove debug symbols to significantly reduce binary size.
-panic = "abort"   # Abort on panic to create a smaller binary without unwinding support.
+[workspace]
+members = ["crates/app-core", "crates/app-orm", "crates/auth", "."]
 
 # -----------------------------------------------------------------------------
-# Dependencies
+# Workspace Shared Dependencies
 # -----------------------------------------------------------------------------
-[dependencies]
-# --- Web & API ---
+[workspace.dependencies]
+# --- Async runtime & server ---
+async-trait = "0.1.89"
+tokio = { version = "1.47.1", features = ["full"] }
 axum = { version = "0.8.4", features = ["macros", "multipart"] }
 axum-extra = { version = "0.10.1", features = ["typed-header"] }
-reqwest = { version = "0.12.22", features = ["json"] }
 tower = { version = "0.5.2", features = ["timeout", "util"] }
-tower-cookies =  { version = "0.11.0", features = ["private"] }
 tower-http = { version = "0.6.6", features = [
     "compression-full",
     "cors",
     "decompression-full",
     "trace",
-    "timeout"
+    "timeout",
 ] }
+tower-cookies = { version = "0.11.0", features = ["private"] }
 
-# --- Database & Persistence ---
+# --- Instrumentation ---
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["json", "env-filter"] }
+log = "0.4.27"
+
+# --- Auth & security ---
+oauth2 = "5.0.0"
+totp-rs = { version = "5.7.0", features = [
+    "qr",
+    "serde_support",
+    "gen_secret",
+] }
+uuid = { version = "1.18.0", features = ["v4"] }
+base64 = "0.22.1"
+
+# --- Serialization & validation ---
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.142"
+validator = { version = "0.20.0", features = ["derive"] }
+
+# --- Database & storage ---
 sea-orm = { version = "1.1.14", features = [
     "sqlx-postgres",
     "sqlx-dep",
     "runtime-tokio-rustls",
     "macros",
-    "mock"
+    "mock",
 ] }
 bb8 = "0.9.0"
 bb8-redis = "0.24.0"
-redis = { version = "0.32.4", features = ["tokio-comp"] }
+redis = { version = "0.32.5", features = ["tokio-comp"] }
 
-# --- Serialization & Validation ---
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.142"
-validator = { version = "0.20.0", features = ["derive"] }
-
-# --- Asynchronous Runtime & Concurrency ---
-tokio = { version = "1.47.1", features = ["full"] }
-async-trait = "0.1.88"
-
-# --- Security & Hashing ---
-argon2 = "0.5.3"
-thiserror = "2.0.12"
-jsonwebtoken = "9.3.1"
-chrono = "0.4.41"
-oauth2 = "5.0.0"
-totp-rs = { version = "5.7.0", features = ["qr", "serde_support","gen_secret"] }
-base64 = "0.22.1"
-
-# --- Configuration & Logging ---
-config = { version = "0.15.13", features = ["yaml"] }
-log = "0.4.27"
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["json", "env-filter"] }
-
-# --- Cloud & Storage ---
-# These are optional and only included when a specific feature is enabled.
-aws-config = { version = "1.8.3", optional = true }
-aws-sdk-s3 = { version = "1.100.0", optional = true }
-google-cloud-storage = { version = "0.24.0", optional = true }
+# --- HTTP & networking ---
+reqwest = { version = "0.12.23", features = ["json"] }
 mime_guess = "2.0.5"
 
-# --- Utilities ---
-notify = "8.2.0"
-tempfile = "3.20.0"
-uuid = { version = "1.17.0", features = ["v4"] }
+# --- Time & date ---
+chrono = "0.4.41"
 
-# -----------------------------------------------------------------------------
-# Feature Flags
-# -----------------------------------------------------------------------------
-[features]
-# Default feature for local development.
-default = ["storage-local"]
+# local
+app-core = { path = "crates/app-core", features = [
+    "storage-local",
+    "mail-local",
+] }
+app-orm = { path = "crates/app-orm" }
+auth = { path = "crates/auth" }
 
-# Enables the local filesystem storage backend.
-storage-local = []
-
-# Enables the MinIO/AWS (S3) backend.
-storage-aws = ["dep:aws-config", "dep:aws-sdk-s3"]
-
-# Enables the Google Cloud Platform (Storage) backend.
-storage-gcp = ["dep:google-cloud-storage"]
-
-# -----------------------------------------------------------------------------
-# Development Dependencies
-# -----------------------------------------------------------------------------
-[dev-dependencies]
+# dev-dependencies
 mockall = "0.13.1"
 sea-orm-cli = "1.1.14"
-testcontainers = "0.25.0"
+
+# -----------------------------------------------------------------------------
+# Dependencies
+# -----------------------------------------------------------------------------
+[dependencies]
+# local
+app-core = { workspace = true }
+app-orm = { workspace = true }
+auth = { workspace = true }
+# third party
+base64 = { workspace = true }
+axum = { workspace = true }
+log = { workspace = true }
+bb8 = { workspace = true }
+bb8-redis = { workspace = true }
+sea-orm = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tower-cookies = { workspace = true }
+tower-http = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# -----------------------------------------------------------------------------
+# Release Profile - Optimized for Production
+# -----------------------------------------------------------------------------
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+# Additional size optimizations
+overflow-checks = false  # Disable overflow checks in release
+debug = false            # No debug info
+debug-assertions = false # Disable debug assertions
+incremental = false      # Disable incremental compilation for smaller binaries

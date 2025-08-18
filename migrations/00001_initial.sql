@@ -26,8 +26,7 @@ CREATE TABLE users (
 );
 
 -- Create a unique index on the lowercase version of the email.
--- This enforces uniqueness across all users, including those that are soft-deleted.
-CREATE UNIQUE INDEX idx_users_lower_case_email ON users (lower(email)) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX idx_users_lower_case_email ON users (lower(email));
 
 CREATE TRIGGER set_timestamp
 BEFORE UPDATE ON users
@@ -39,10 +38,19 @@ CREATE TABLE user_credentials (
     hashed_password TEXT NOT NULL,
     password_last_changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     
-    CONSTRAINT fk_user
+    CONSTRAINT fk_user_credentials_user
         FOREIGN KEY(user_id) 
         REFERENCES users(id)
         ON DELETE CASCADE
+);
+
+CREATE TABLE user_verifications (
+    user_id BIGINT NOT NULL,
+    token VARCHAR(255) NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT pk_user_verifications PRIMARY KEY (user_id, token),
+    CONSTRAINT fk_user_verifications_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE user_connections (
@@ -52,7 +60,7 @@ CREATE TABLE user_connections (
     provider_user_id VARCHAR(255) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT fk_user
+    CONSTRAINT fk_user_connections_user
         FOREIGN KEY(user_id) 
         REFERENCES users(id)
         ON DELETE CASCADE,
@@ -62,17 +70,12 @@ CREATE TABLE user_connections (
 
 CREATE INDEX idx_user_connections_user_id ON user_connections(user_id);
 
-CREATE TRIGGER set_timestamp
-BEFORE UPDATE ON user_connections
-FOR EACH ROW
-EXECUTE FUNCTION trigger_set_timestamp();
-
 -- ---------------------------------
 -- RBAC (Role-Based Access Control)
 -- ---------------------------------
 
 CREATE TABLE permissions (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
     action VARCHAR(100) NOT NULL,
     resource VARCHAR(100) NOT NULL,
     description TEXT,
@@ -80,7 +83,7 @@ CREATE TABLE permissions (
 );
 
 CREATE TABLE roles (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
     name VARCHAR(100) UNIQUE NOT NULL,
     description TEXT
 );
@@ -89,16 +92,16 @@ CREATE TABLE role_permissions (
     role_id BIGINT NOT NULL,
     permission_id BIGINT NOT NULL,
     PRIMARY KEY (role_id, permission_id),
-    CONSTRAINT fk_role FOREIGN KEY(role_id) REFERENCES roles(id) ON DELETE CASCADE,
-    CONSTRAINT fk_permission FOREIGN KEY(permission_id) REFERENCES permissions(id) ON DELETE CASCADE
+    CONSTRAINT fk_role_permissions_role FOREIGN KEY(role_id) REFERENCES roles(id) ON DELETE CASCADE,
+    CONSTRAINT fk_role_permissions_permission FOREIGN KEY(permission_id) REFERENCES permissions(id) ON DELETE CASCADE
 );
 
 CREATE TABLE user_roles (
     user_id BIGINT NOT NULL,
     role_id BIGINT NOT NULL,
     PRIMARY KEY (user_id, role_id),
-    CONSTRAINT fk_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_role FOREIGN KEY(role_id) REFERENCES roles(id) ON DELETE CASCADE
+    CONSTRAINT fk_user_roles_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_user_roles_role FOREIGN KEY(role_id) REFERENCES roles(id) ON DELETE CASCADE
 );
 
 -- ---------------------------------
@@ -114,7 +117,7 @@ CREATE TABLE mfa_factors (
     is_verified BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT fk_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT fk_mfa_factors_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_mfa_factors_user_id ON mfa_factors(user_id);
@@ -129,7 +132,7 @@ CREATE TABLE mfa_backup_codes (
     mfa_factor_id BIGINT NOT NULL,
     hashed_code TEXT NOT NULL,
     is_used BOOLEAN NOT NULL DEFAULT FALSE,
-    CONSTRAINT fk_mfa_factor FOREIGN KEY(mfa_factor_id) REFERENCES mfa_factors(id) ON DELETE CASCADE
+    CONSTRAINT fk_mfa_backup_codes_factor FOREIGN KEY(mfa_factor_id) REFERENCES mfa_factors(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_mfa_backup_codes_mfa_factor_id ON mfa_backup_codes(mfa_factor_id);
@@ -155,6 +158,7 @@ DROP TABLE IF EXISTS roles;
 DROP TABLE IF EXISTS permissions;
 DROP TABLE IF EXISTS user_connections;
 DROP TABLE IF EXISTS user_credentials;
+DROP TABLE IF EXISTS user_verifications;
 DROP TABLE IF EXISTS users;
 DROP FUNCTION IF EXISTS trigger_set_timestamp();
 -- +goose StatementEnd
